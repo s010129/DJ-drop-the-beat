@@ -1,7 +1,6 @@
 'use strict';
 /* Loop Station：介面與控制（實際錄放在 processors.js 的 LooperProcessor） */
 
-const LOOP_TRACKS = 4;
 const LOOP_STATE_TEXT = {
   empty: '空軌',
   countin: '預備拍',
@@ -22,9 +21,12 @@ const LOOP_MAIN_TEXT = {
 };
 
 class LoopStation {
-  constructor(app, root) {
+  /** opts.tracks：軌道數；opts.undoKeys：每軌復原鍵；頁面沒有 DJ 盤時錄音來源固定為麥克風 */
+  constructor(app, root, opts = {}) {
     this.app = app;
     this.root = root;
+    this.opts = opts;
+    this.count = opts.tracks || 4;
     this.ctx = null;
     this.node = null;
     this.status = null;
@@ -35,8 +37,8 @@ class LoopStation {
     this.metro = false;
     this.latencyMs = 0;
     this.latencyTouched = false;
-    this.vols = new Array(LOOP_TRACKS).fill(1);
-    this.peaks = new Array(LOOP_TRACKS).fill(null);
+    this.vols = new Array(this.count).fill(1);
+    this.peaks = new Array(this.count).fill(null);
     this.taps = [];
     this.reqId = 0;
     this.pending = new Map();
@@ -48,6 +50,11 @@ class LoopStation {
 
   buildUI() {
     const root = this.root;
+    const opts = this.opts;
+    const on = (sel, ev, fn) => {
+      const el = $(sel, root);
+      if (el) el.addEventListener(ev, fn);
+    };
 
     $$('#lpSource button', root).forEach((b) =>
       b.addEventListener('click', () => {
@@ -55,25 +62,15 @@ class LoopStation {
         if (b.dataset.v !== 'deck' && !this.app.micReady && this.app.started) this.app.enableMic();
       })
     );
-    $('#micBtn', root).addEventListener('click', async () => {
-      await this.app.start();
-      this.app.enableMic();
-    });
-    $('#micMonitor', root).addEventListener('change', (e) => this.app.setMicMonitor(e.target.checked));
+    on('#micMonitor', 'change', (e) => this.app.setMicMonitor(e.target.checked));
 
     this.bpmInput = $('#lpBpm', root);
     this.bpmInput.addEventListener('change', () => this.setBpm(parseFloat(this.bpmInput.value)));
-    $('#tapBtn', root).addEventListener('click', () => this.tap());
-    $('#bpmFromA', root).addEventListener('click', () => this.bpmFromDeck(0));
-    $('#bpmFromB', root).addEventListener('click', () => this.bpmFromDeck(1));
-    $('#lpMetro', root).addEventListener('change', (e) => {
-      this.metro = e.target.checked;
-      if (this.metro && this.quant === 'off') {
-        this.quant = 'bar';
-        $('#lpQuant', root).value = 'bar';
-      }
-      this.sendConfig();
-    });
+    on('#tapBtn', 'click', () => this.tap());
+    on('#bpmFromA', 'click', () => this.bpmFromDeck(0));
+    on('#bpmFromB', 'click', () => this.bpmFromDeck(1));
+    this.metroBox = $('#lpMetro', root);
+    this.metroBox.addEventListener('change', (e) => this.setMetro(e.target.checked));
     $('#lpQuant', root).addEventListener('change', (e) => {
       this.quant = e.target.value;
       e.target.blur();
@@ -87,11 +84,11 @@ class LoopStation {
       this.sendConfig();
     });
     $('#lpRestart', root).addEventListener('click', () => this.post({ type: 'restart' }));
-    $('#lpAll', root).addEventListener('click', () => this.post({ type: 'toggleAll' }));
+    $('#lpAll', root).addEventListener('click', () => this.toggleAll());
     $('#lpExportMix', root).addEventListener('click', () => this.exportMix());
 
     const wrap = $('#lpTracks', root);
-    for (let i = 0; i < LOOP_TRACKS; i++) {
+    for (let i = 0; i < this.count; i++) {
       const el = document.createElement('div');
       el.className = 'lp-track';
       el.dataset.state = 'empty';
@@ -101,12 +98,12 @@ class LoopStation {
           <span class="lp-state">空軌</span>
           <span class="lp-len"></span>
         </div>
-        <canvas class="lp-wave"></canvas>
+        <canvas class="lp-wave no-menu"></canvas>
         <div class="lp-vol"></div>
         <div class="lp-btns">
           <button type="button" class="btn small lp-main" title="錄音 → 播放 → 疊錄（按鍵 ${i + 1}）">● 錄音</button>
           <button type="button" class="btn icon lp-stop" title="停止／播放（Shift+${i + 1}）">■</button>
-          <button type="button" class="btn icon lp-undo" title="復原／重做上一次疊錄">↶</button>
+          <button type="button" class="btn icon lp-undo" title="復原／重做上一次疊錄${opts.undoKeys ? `（${opts.undoKeys[i]}）` : ''}"${opts.undoKeys ? ` data-key="Key${opts.undoKeys[i]}"` : ''}>↶</button>
           <label class="btn icon lp-import" title="匯入音檔到這一軌">⬆<input type="file" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac,.aac" hidden></label>
           <button type="button" class="btn icon lp-export" title="匯出這一軌（WAV）">⬇</button>
           <button type="button" class="btn icon lp-clear" title="清除這一軌">✕</button>
@@ -128,7 +125,7 @@ class LoopStation {
       });
       tr.mainBtn.addEventListener('click', () => this.press(i));
       $('.lp-stop', el).addEventListener('click', () => this.post({ type: 'stop', i }));
-      $('.lp-undo', el).addEventListener('click', () => this.post({ type: 'undo', i }));
+      $('.lp-undo', el).addEventListener('click', () => this.undo(i));
       $('.lp-export', el).addEventListener('click', () => this.exportTrack(i));
       const clearBtn = $('.lp-clear', el);
       clearBtn.addEventListener('click', () => {
@@ -169,6 +166,7 @@ class LoopStation {
     }
     this.lenInfo = $('#lpLenInfo', root);
     this.posInfo = $('#lpPosInfo', root);
+    if (!$('#lpSource', root)) this.source = 'mic';
     this.setSource(this.source);
   }
 
@@ -180,13 +178,13 @@ class LoopStation {
       numberOfInputs: 2,
       numberOfOutputs: 2,
       outputChannelCount: [2, 2],
-      processorOptions: { tracks: LOOP_TRACKS },
+      processorOptions: { tracks: this.count },
     });
     this.node.port.onmessage = (e) => this.onMessage(e.data);
     this.micSend = ctx.createGain();
     this.deckSend = ctx.createGain();
     this.app.micBus.connect(this.micSend).connect(this.node, 0, 0);
-    this.app.deckBus.connect(this.deckSend).connect(this.node, 0, 1);
+    if (this.app.deckBus) this.app.deckBus.connect(this.deckSend).connect(this.node, 0, 1);
     this.out = ctx.createGain();
     this.node.connect(this.out, 0);
     this.out.connect(this.app.master);
@@ -217,6 +215,16 @@ class LoopStation {
     const t = this.ctx.currentTime;
     this.micSend.gain.setTargetAtTime(src === 'deck' ? 0 : 1, t, 0.01);
     this.deckSend.gain.setTargetAtTime(src === 'mic' ? 0 : 1, t, 0.01);
+  }
+
+  setMetro(on) {
+    this.metro = on;
+    this.metroBox.checked = on;
+    if (on && this.quant === 'off') {
+      this.quant = 'bar';
+      $('#lpQuant', this.root).value = 'bar';
+    }
+    this.sendConfig();
   }
 
   setBpm(v) {
@@ -269,6 +277,14 @@ class LoopStation {
     this.post({ type: 'stop', i });
   }
 
+  undo(i) {
+    this.post({ type: 'undo', i });
+  }
+
+  toggleAll() {
+    this.post({ type: 'toggleAll' });
+  }
+
   async importFile(i, file) {
     await this.app.start();
     if (this.status && this.status.tracks.some((t) => t.s === 'first' || t.s === 'countin')) {
@@ -317,7 +333,7 @@ class LoopStation {
       return;
     }
     const parts = [];
-    for (let i = 0; i < LOOP_TRACKS; i++) {
+    for (let i = 0; i < this.count; i++) {
       const st = s.tracks[i].s;
       if (st !== 'play' && st !== 'dub' && st !== 'rec') continue;
       const d = await this.request(i);

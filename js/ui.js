@@ -147,6 +147,7 @@ class Knob {
     this.max = opts.max ?? 1;
     this.def = opts.value ?? 0;
     this.value = this.def;
+    this.step = opts.step || 0;
     this.bipolar = opts.bipolar ?? (this.min < 0 && this.max > 0);
     this.onChange = opts.onChange || (() => {});
     this.format = opts.format || ((v) => v.toFixed(2));
@@ -185,7 +186,7 @@ class Knob {
       'wheel',
       (e) => {
         e.preventDefault();
-        this.set(this.value - Math.sign(e.deltaY) * ((this.max - this.min) / 50));
+        this.set(this.value - Math.sign(e.deltaY) * Math.max(this.step, (this.max - this.min) / 50));
         this.showValue(true);
         clearTimeout(this._wt);
         this._wt = setTimeout(() => this.showValue(false), 700);
@@ -202,6 +203,7 @@ class Knob {
 
   set(v, emit = true) {
     v = clamp(v, this.min, this.max);
+    if (this.step) v = Math.round(v / this.step) * this.step;
     // 雙極旋鈕靠近中央時吸附到 0
     if (this.bipolar && Math.abs(v) < (this.max - this.min) * 0.015) v = 0;
     if (v === this.value) return;

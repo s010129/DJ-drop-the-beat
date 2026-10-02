@@ -10,9 +10,14 @@
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap">
   <link rel="stylesheet" href="css/style.css">
 </head>
-<body>
+<body data-export-prefix="dj-mix">
   <header class="topbar">
-    <div class="brand"><span class="brand-dot"></span>DJ <b>DROP THE BEAT</b></div>
+    <a class="brand" href="index.html"><span class="brand-dot"></span>DJ <b>DROP THE BEAT</b></a>
+    <nav class="tabs" aria-label="頁面">
+      <a class="tab" href="index.html" aria-current="page">DJ 控制台</a>
+      <a class="tab" href="loop.html">Loop Station</a>
+      <a class="tab" href="pads.html">打擊墊 PAD</a>
+    </nav>
     <div class="rec-box">
       <button type="button" id="recBtn" class="rec-btn" title="錄下主輸出（唱盤 + Loop + 監聽中的麥克風）">
         <span class="rec-dot"></span><span class="rec-label">錄製混音</span>
@@ -79,7 +84,7 @@
         </div>
       </div>
       <div class="ctl">
-        <button type="button" id="micBtn" class="btn small">啟用麥克風</button>
+        <button type="button" id="micBtn" class="btn small mic-btn">啟用麥克風</button>
         <div class="meter h" id="micMeter" title="麥克風音量"></div>
         <label class="check" title="把麥克風送到喇叭與混音錄音（請戴耳機）"><input type="checkbox" id="micMonitor"> 監聽</label>
       </div>
@@ -157,7 +162,7 @@
         <div><b class="b">右盤</b> <kbd>O</kbd><kbd>K</kbd><kbd>L</kbd><kbd>;</kbd></div>
         <div><b class="loop">Loop</b> <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd></div>
       </div>
-      <p class="hint">建議用桌機版 Chrome / Edge / Firefox。若按鍵沒反應，請把輸入法切到英文。</p>
+      <p class="hint">鍵盤和觸控都能操作。建議用 Chrome / Edge / Firefox / Safari；若按鍵沒反應，請把輸入法切到英文。</p>
       <p class="error" id="startError"></p>
     </div>
   </div>
@@ -209,10 +214,12 @@
 
   <script src="js/processors.js"></script>
   <script src="js/ui.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/synth.js"></script>
   <script src="js/analysis.js"></script>
   <script src="js/demo.js"></script>
   <script src="js/deck.js"></script>
   <script src="js/looper.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/page-dj.js"></script>
 </body>
 </html>

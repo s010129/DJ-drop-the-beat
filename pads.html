@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>打擊墊 PAD · DJ Drop The Beat</title>
+  <meta name="description" content="4×4 RGB 力度打擊墊 + 16 軌 64 步音序器：即時錄入、Note Repeat、取樣錄音、效果，最後匯出。鍵盤與觸控都能操作。">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/pads.css">
+</head>
+<body class="page-pads" data-export-prefix="pad-session">
+  <header class="topbar">
+    <a class="brand" href="index.html"><span class="brand-dot"></span>DJ <b>DROP THE BEAT</b></a>
+    <nav class="tabs" aria-label="頁面">
+      <a class="tab" href="index.html">DJ 控制台</a>
+      <a class="tab" href="loop.html">Loop Station</a>
+      <a class="tab" href="pads.html" aria-current="page">打擊墊 PAD</a>
+    </nav>
+    <div class="rec-box">
+      <button type="button" id="recBtn" class="rec-btn" title="錄下你的即興演奏（節拍器不會被錄進去）">
+        <span class="rec-dot"></span><span class="rec-label">錄製演奏</span>
+      </button>
+      <span id="recTime" class="rec-time">0:00</span>
+      <select id="recFormat" title="匯出格式">
+        <option value="wav">WAV 無損</option>
+        <option value="compressed">壓縮（WebM / M4A）</option>
+      </select>
+    </div>
+    <div class="top-actions">
+      <button type="button" id="helpBtn" class="btn small ghost">⌨ 說明</button>
+    </div>
+  </header>
+
+  <main class="pm" id="padMachine">
+    <section class="pm-device" aria-label="打擊墊控制器">
+      <div class="pm-left">
+        <div class="pm-screen" aria-live="off">
+          <div class="scr-row"><span id="scrKit">Electro</span><span id="scrMode">■ STOP</span></div>
+          <div class="scr-big"><span id="scrBpm">120.0</span><small>BPM</small></div>
+          <div class="scr-row"><span id="scrStep">STEP --/16</span><span id="scrHit">—</span></div>
+          <div class="scr-steps" id="scrSteps" title="選中的 pad 在這一頁的音符"></div>
+        </div>
+        <div class="pm-knobs" id="pmKnobs"></div>
+        <div class="pm-transport">
+          <button type="button" id="pmPlay" class="tbtn play" data-key="Space"><kbd>Space</kbd><span>▶ 播放</span></button>
+          <button type="button" id="pmRec" class="tbtn rec" data-key="Enter"><kbd>Enter</kbd><span>● 錄入</span></button>
+          <button type="button" id="pmMetro" class="tbtn" data-key="KeyM"><kbd>M</kbd><span>節拍器</span></button>
+          <button type="button" id="pmRepeat" class="tbtn" data-key="KeyN"><kbd>N</kbd><span>連打 1/16</span></button>
+        </div>
+        <div class="pm-row">
+          <span class="ctl-label">BPM</span>
+          <button type="button" id="pmBpmDown" class="btn icon" title="BPM −1（↓）" data-key="ArrowDown">−</button>
+          <input type="number" id="pmBpm" min="40" max="240" step="0.1" value="120">
+          <button type="button" id="pmBpmUp" class="btn icon" title="BPM +1（↑）" data-key="ArrowUp">+</button>
+          <button type="button" id="pmTap" class="btn tiny" title="跟著節奏連點幾下（T）" data-key="KeyT">TAP</button>
+        </div>
+        <div class="pm-row">
+          <label class="ctl-label" for="pmKit">音色組</label>
+          <select id="pmKit"></select>
+        </div>
+        <div class="pm-row">
+          <label class="ctl-label" for="pmRate">連打速度</label>
+          <select id="pmRate"></select>
+          <label class="ctl-label" for="pmVel">力度</label>
+          <select id="pmVel" title="觸碰位置：點 pad 越上方越大聲">
+            <option value="fixed">固定</option>
+            <option value="position">觸碰位置</option>
+          </select>
+        </div>
+        <div class="pm-row meter-row"><span class="ctl-label">OUT</span><div class="meter h" id="vuMaster"></div></div>
+      </div>
+      <div class="pm-pads-wrap">
+        <div class="pm-pads" id="pmPads"></div>
+      </div>
+    </section>
+
+    <section class="pm-editor" id="pmEditor" aria-label="Pad 設定">
+      <div class="panel-title">PAD 設定</div>
+      <div class="pe-head">
+        <span class="pe-swatch" id="peSwatch"></span>
+        <div><b id="peName">Kick</b><div class="pe-sub" id="peSub">Electro · 鍵 A</div></div>
+      </div>
+      <canvas class="pe-wave no-menu" id="peWave"></canvas>
+      <div class="pe-knobs" id="peKnobs"></div>
+      <div class="pe-btns">
+        <button type="button" id="peReverse" class="btn small">反轉</button>
+        <button type="button" id="peMute" class="btn small">靜音</button>
+        <button type="button" id="peSolo" class="btn small">獨奏</button>
+      </div>
+      <div class="pe-btns">
+        <label class="btn small">載入音檔<input type="file" id="peFile" accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac,.aac" hidden></label>
+        <button type="button" id="peRecord" class="btn small mic-rec">錄音取樣</button>
+      </div>
+      <div class="pe-btns">
+        <button type="button" id="peReset" class="btn small ghost">還原音色</button>
+        <button type="button" id="peClearSteps" class="btn small ghost">清除這個 pad 的音符</button>
+      </div>
+      <p class="pe-hint">點 pad 就會選取它。也可以把音檔直接拖到任何一個 pad 上；錄音取樣最長 10 秒，會自動去掉頭尾的靜音。</p>
+    </section>
+
+    <section class="pm-seq" aria-label="音序器">
+      <div class="seq-head">
+        <div class="panel-title">STEP SEQUENCER · 16 軌 × 64 步</div>
+        <div class="seq-ctl">
+          <span class="ctl-label">長度</span>
+          <div class="seg" id="seqLen">
+            <button type="button" data-v="16">16</button>
+            <button type="button" data-v="32">32</button>
+            <button type="button" data-v="48">48</button>
+            <button type="button" data-v="64">64</button>
+          </div>
+          <span class="ctl-label">頁</span>
+          <div class="seg" id="seqPage" title="← → 切換">
+            <button type="button" data-v="0">1–16</button>
+            <button type="button" data-v="1">17–32</button>
+            <button type="button" data-v="2">33–48</button>
+            <button type="button" data-v="3">49–64</button>
+          </div>
+          <label class="check"><input type="checkbox" id="seqFollow" checked> 跟著播放</label>
+          <button type="button" id="seqUndo" class="btn small" disabled title="復原／重做上一次修改">↶ 復原</button>
+          <button type="button" id="seqClear" class="btn small">清除全部</button>
+          <button type="button" id="seqExport" class="btn small primary" title="把 Pattern 算成可無縫循環的 WAV">⬇ 匯出 Pattern</button>
+        </div>
+      </div>
+      <div class="seq-scroll"><div class="seq-grid" id="seqGrid"></div></div>
+      <p class="seq-hint">點格子新增／刪除音符（Shift+點 = 輕音），滑鼠可以拖曳連續畫。按 <kbd>Enter</kbd> 錄入時，邊播放邊打 pad，會自動對齊到最近的 16 分音符。M／S＝靜音／獨奏（只影響音序器）。</p>
+    </section>
+  </main>
+
+  <section class="exports" id="exports" hidden aria-label="匯出結果">
+    <div class="panel-title">匯出結果</div>
+    <ul id="exportList"></ul>
+  </section>
+
+  <footer class="keymap" aria-label="鍵盤對照">
+    <div class="km-group pads">
+      <b>Pads</b>
+      <span><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd></span>
+      <span><kbd>Q</kbd><kbd>W</kbd><kbd>E</kbd><kbd>R</kbd></span>
+      <span><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd></span>
+      <span><kbd>Z</kbd><kbd>X</kbd><kbd>C</kbd><kbd>V</kbd></span>
+      <span><kbd>Shift</kbd>+鍵 輕打</span>
+    </div>
+    <div class="km-group loop">
+      <b>控制</b>
+      <span><kbd>Space</kbd> 播放</span>
+      <span><kbd>Enter</kbd> 錄入</span>
+      <span><kbd>M</kbd> 節拍器</span>
+      <span><kbd>N</kbd> 連打</span>
+      <span><kbd>T</kbd> TAP</span>
+      <span><kbd>←</kbd><kbd>→</kbd> 頁</span>
+      <span><kbd>↑</kbd><kbd>↓</kbd> BPM</span>
+    </div>
+  </footer>
+
+  <div class="overlay" id="startOverlay">
+    <div class="overlay-card">
+      <div class="brand big"><span class="brand-dot"></span>PAD <b>16</b></div>
+      <p>4×4 RGB 打擊墊 + 16 軌 64 步音序器。<br>用鍵盤或手指打節奏、錄進 Pattern，再匯出成 WAV。</p>
+      <button type="button" id="startBtn" class="btn primary big">▶ 開始（或按任意鍵）</button>
+      <div class="overlay-keys pads-keys">
+        <div><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd></div>
+        <div><kbd>Q</kbd><kbd>W</kbd><kbd>E</kbd><kbd>R</kbd></div>
+        <div><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><kbd>F</kbd></div>
+        <div><kbd>Z</kbd><kbd>X</kbd><kbd>C</kbd><kbd>V</kbd></div>
+      </div>
+      <p class="hint">鍵盤 4×4 對應畫面上的 pad：<kbd>A</kbd> 大鼓、<kbd>S</kbd> 小鼓、<kbd>D</kbd> <kbd>F</kbd> Hi-Hat。<br>若按鍵沒反應，請把輸入法切到英文。</p>
+      <p class="error" id="startError"></p>
+    </div>
+  </div>
+
+  <dialog id="help" class="help">
+    <div class="help-head">
+      <h2>打擊墊說明</h2>
+      <button type="button" id="helpClose" class="btn icon ghost" title="關閉">✕</button>
+    </div>
+    <div class="help-grid">
+      <table>
+        <caption class="pads">Pad（鍵盤位置＝畫面位置）</caption>
+        <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></td><td>第一排：和弦／808 貝斯／音效</td></tr>
+        <tr><td><kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd></td><td>第二排：筒鼓與打擊樂</td></tr>
+        <tr><td><kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> <kbd>F</kbd></td><td>第三排：大鼓、小鼓、Hi-Hat、Open Hat</td></tr>
+        <tr><td><kbd>Z</kbd> <kbd>X</kbd> <kbd>C</kbd> <kbd>V</kbd></td><td>第四排：拍手、邊擊、沙鈴、鈸</td></tr>
+        <tr><td><kbd>Shift</kbd>+鍵</td><td>輕打（力度較小）</td></tr>
+      </table>
+      <table>
+        <caption class="loop">控制</caption>
+        <tr><td><kbd>Space</kbd></td><td>播放 ／ 停止音序器</td></tr>
+        <tr><td><kbd>Enter</kbd></td><td>錄入：邊播放邊打 pad，自動對齊到 16 分音符</td></tr>
+        <tr><td><kbd>N</kbd></td><td>連打（Note Repeat）：按住 pad 會照速度連續觸發</td></tr>
+        <tr><td><kbd>M</kbd></td><td>節拍器（不會被錄進去）</td></tr>
+        <tr><td><kbd>T</kbd></td><td>TAP 設定 BPM</td></tr>
+        <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>BPM ±1（加 Shift 為 ±10）</td></tr>
+        <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>切換音序器頁（每頁 16 步）</td></tr>
+      </table>
+      <table>
+        <caption>觸控與滑鼠</caption>
+        <tr><td>Pad</td><td>可以多指同時打；力度選「觸碰位置」時，點越上方越大聲</td></tr>
+        <tr><td>音序器</td><td>點格子切換音符，Shift+點為輕音，滑鼠可拖曳連續畫</td></tr>
+        <tr><td>Pad 設定</td><td>音量、音高（±12 半音）、聲像、反轉、載入音檔、錄音取樣</td></tr>
+        <tr><td>匯出</td><td>「匯出 Pattern」算成可無縫循環的 WAV；上方「錄製演奏」錄下即興</td></tr>
+      </table>
+    </div>
+  </dialog>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="js/processors.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/synth.js"></script>
+  <script src="js/kits.js"></script>
+  <script src="js/pads.js"></script>
+  <script src="js/page-pads.js"></script>
+</body>
+</html>

@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loop Station · DJ Drop The Beat</title>
+  <meta name="description" content="6 軌 Loop Station：用麥克風或音檔循環錄音、疊錄、復原，最後匯出。鍵盤與觸控都能操作。">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="page-loop" data-export-prefix="loop-session">
+  <header class="topbar">
+    <a class="brand" href="index.html"><span class="brand-dot"></span>DJ <b>DROP THE BEAT</b></a>
+    <nav class="tabs" aria-label="頁面">
+      <a class="tab" href="index.html">DJ 控制台</a>
+      <a class="tab" href="loop.html" aria-current="page">Loop Station</a>
+      <a class="tab" href="pads.html">打擊墊 PAD</a>
+    </nav>
+    <div class="rec-box">
+      <button type="button" id="recBtn" class="rec-btn" title="錄下主輸出（所有 Loop + 監聽中的麥克風）">
+        <span class="rec-dot"></span><span class="rec-label">錄製演出</span>
+      </button>
+      <span id="recTime" class="rec-time">0:00</span>
+      <select id="recFormat" title="匯出格式">
+        <option value="wav">WAV 無損</option>
+        <option value="compressed">壓縮（WebM / M4A）</option>
+      </select>
+    </div>
+    <div class="top-actions">
+      <button type="button" id="helpBtn" class="btn small ghost">⌨ 說明</button>
+    </div>
+  </header>
+
+  <section class="looper" id="looper" aria-label="Loop Station">
+    <div class="looper-head">
+      <div class="panel-title loop">LOOP STATION · 6 TRACKS</div>
+      <div class="lp-info"><span id="lpLenInfo">Loop 長度：尚未錄製（第一個 Loop 決定長度）</span><span id="lpPosInfo"></span></div>
+    </div>
+    <div class="lp-rack">
+      <div class="lp-controls">
+        <div class="ctl">
+          <button type="button" class="btn small mic-btn">啟用麥克風</button>
+          <div class="meter h" id="micMeter" title="麥克風音量"></div>
+          <label class="check" title="把麥克風送到喇叭與演出錄音（請戴耳機）"><input type="checkbox" id="micMonitor"> 監聽</label>
+        </div>
+        <div class="ctl">
+          <span class="ctl-label">BPM</span>
+          <input type="number" id="lpBpm" min="40" max="240" step="0.1" value="120">
+          <button type="button" id="tapBtn" class="btn tiny" title="跟著節奏連點幾下（P）" data-key="KeyP">TAP</button>
+        </div>
+        <div class="ctl">
+          <label class="check" title="節拍器只送到喇叭，不會被錄進去（M）"><input type="checkbox" id="lpMetro"> 節拍器</label>
+          <span class="ctl-label">量化</span>
+          <select id="lpQuant" title="第一個 Loop 的長度要對齊到幾拍／幾小節">
+            <option value="off">關</option>
+            <option value="beat">拍</option>
+            <option value="bar">小節</option>
+          </select>
+        </div>
+        <div class="ctl" title="麥克風錄音時往前補償的時間（輸出＋輸入延遲），開啟麥克風後會自動估算">
+          <span class="ctl-label">延遲補償</span>
+          <input type="number" id="lpLatency" min="0" max="1000" step="1" value="0"><span class="unit">ms</span>
+        </div>
+        <div class="ctl">
+          <button type="button" id="lpRestart" class="btn small" title="所有 Loop 從頭開始（Enter）" data-key="Enter">⏮ 從頭</button>
+          <button type="button" id="lpAll" class="btn small" title="全部停止／全部播放（Space）" data-key="Space">⏯ 全部</button>
+          <button type="button" id="lpExportMix" class="btn small primary" title="把正在播放的 Loop 混成一段無縫循環的 WAV">⬇ 匯出 Loop 混音</button>
+        </div>
+      </div>
+      <div class="lp-mixer">
+        <div class="lp-knobs" id="loopKnobs"></div>
+        <div class="master-meter"><div class="meter tall" id="vuMaster"></div><span>OUT</span></div>
+      </div>
+    </div>
+    <div class="lp-tracks" id="lpTracks"></div>
+    <p class="lp-hint">
+      按 <kbd>1</kbd>–<kbd>6</kbd> 或點大按鈕：空軌 → <b>錄音</b>，再按 → <b>播放</b>，再按 → <b>疊錄</b>（再按回到播放）。
+      <kbd>Shift</kbd>+數字：停止／播放；<kbd>Q</kbd>–<kbd>Y</kbd>：復原該軌。也可以把音檔拖到軌道上匯入。
+    </p>
+  </section>
+
+  <section class="exports" id="exports" hidden aria-label="匯出結果">
+    <div class="panel-title">匯出結果</div>
+    <ul id="exportList"></ul>
+  </section>
+
+  <footer class="keymap" aria-label="鍵盤對照">
+    <div class="km-group loop">
+      <b>Loop</b>
+      <span><kbd>1</kbd>–<kbd>6</kbd> 錄音／播放／疊錄</span>
+      <span><kbd>Shift</kbd>+數字 停止</span>
+      <span><kbd>Q</kbd>–<kbd>Y</kbd> 復原</span>
+      <span><kbd>Space</kbd> 全部</span>
+      <span><kbd>Enter</kbd> 從頭</span>
+      <span><kbd>M</kbd> 節拍器</span>
+      <span><kbd>P</kbd> TAP</span>
+    </div>
+  </footer>
+
+  <div class="overlay" id="startOverlay">
+    <div class="overlay-card">
+      <div class="brand big"><span class="brand-dot"></span>LOOP <b>STATION</b></div>
+      <p>6 軌循環錄音機。用麥克風唱、打節奏，或匯入音檔，<br>一層一層疊上去，最後匯出整段演出。</p>
+      <button type="button" id="startBtn" class="btn primary big">▶ 開始（或按任意鍵）</button>
+      <div class="overlay-keys">
+        <div><b class="loop">錄音／疊錄</b> <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd><kbd>5</kbd><kbd>6</kbd></div>
+      </div>
+      <p class="hint">鍵盤和觸控都能操作。錄音需要麥克風權限，建議戴耳機避免回授。</p>
+      <p class="error" id="startError"></p>
+    </div>
+  </div>
+
+  <dialog id="help" class="help">
+    <div class="help-head">
+      <h2>Loop Station 說明</h2>
+      <button type="button" id="helpClose" class="btn icon ghost" title="關閉">✕</button>
+    </div>
+    <div class="help-grid">
+      <table>
+        <caption class="loop">鍵盤</caption>
+        <tr><td><kbd>1</kbd>–<kbd>6</kbd></td><td>空軌：開始錄音 → 播放 → 疊錄 → 播放…</td></tr>
+        <tr><td><kbd>Shift</kbd>+<kbd>1</kbd>–<kbd>6</kbd></td><td>停止 ／ 繼續播放該軌</td></tr>
+        <tr><td><kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>T</kbd> <kbd>Y</kbd></td><td>復原第 1–6 軌的上一次疊錄（再按一次重做）</td></tr>
+        <tr><td><kbd>Space</kbd></td><td>全部停止 ／ 全部播放</td></tr>
+        <tr><td><kbd>Enter</kbd></td><td>所有 Loop 從頭開始</td></tr>
+        <tr><td><kbd>M</kbd></td><td>節拍器開關</td></tr>
+        <tr><td><kbd>P</kbd></td><td>TAP 設定 BPM</td></tr>
+      </table>
+      <table>
+        <caption>觸控與滑鼠</caption>
+        <tr><td>大按鈕</td><td>錄音 → 播放 → 疊錄（和數字鍵一樣）</td></tr>
+        <tr><td>■</td><td>停止 ／ 播放該軌</td></tr>
+        <tr><td>↶</td><td>復原 ／ 重做上一次疊錄</td></tr>
+        <tr><td>⬆ ⬇</td><td>匯入音檔到這一軌 ／ 匯出這一軌 WAV</td></tr>
+        <tr><td>✕</td><td>清除這一軌（按兩下確認）</td></tr>
+        <tr><td>旋鈕／推桿</td><td>拖曳調整，雙擊歸位</td></tr>
+      </table>
+      <table>
+        <caption>小技巧</caption>
+        <tr><td>第一軌</td><td>第一個 Loop 的長度決定之後所有軌道的長度</td></tr>
+        <tr><td>節拍器</td><td>開啟後會等到下一小節才開錄，並自動把長度對齊到小節</td></tr>
+        <tr><td>匯入</td><td>音檔會對齊成 Loop 長度的整數倍；沒有其他 Loop 時由音檔決定長度</td></tr>
+      </table>
+    </div>
+  </dialog>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="js/processors.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/core.js"></script>
+  <script src="js/looper.js"></script>
+  <script src="js/page-loop.js"></script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 'use strict';
-/* 主程式：建立音訊路由、混音台、鍵盤控制、錄製與匯出 */
+/* 三個頁面共用的音訊核心：AudioContext、AudioWorklet、主輸出、麥克風、錄製混音與匯出、鍵盤分派 */
 
 /**
  * 把 processors.js 的函式轉成模組載入 AudioWorklet。
@@ -17,39 +17,86 @@ async function loadProcessors(ctx) {
   }
 }
 
-/* 鍵盤對照：唱盤按鍵來自 DECK_DEFS */
-const KEY_ACTIONS = {};
-DECK_DEFS.forEach((def, deck) => {
-  for (const [act, code] of Object.entries(def.keys)) KEY_ACTIONS[code] = { deck, act };
-});
-const XF_KEYS = { ArrowLeft: -1, ArrowRight: 1 };
-
-const App = {
-  ctx: null,
-  started: false,
-  starting: null,
-  decks: [],
-  looper: null,
-  vinyl: true,
-  xf: 0.5,
-  xfDir: 0,
-  micReady: false,
-  meters: [],
-  held: new Map(),
-  rec: null,
-  lastFrame: 0,
+/**
+ * 每個頁面繼承這個類別，覆寫：
+ *   setup()            建立頁面介面（還沒有音訊）
+ *   setupAudio(ctx)    建立頁面的音訊節點（接到 this.master）
+ *   render(dt)         每一格畫面更新
+ *   isKey(code)        這個按鍵是否由頁面處理
+ *   keyDown(code, shift) 執行動作，回傳放開時要呼叫的函式（或 null）
+ *   onMicReady(ms)     麥克風開啟後，傳入估計的延遲（毫秒）
+ */
+class AudioApp {
+  constructor() {
+    this.ctx = null;
+    this.started = false;
+    this.starting = null;
+    this.micReady = false;
+    this.meters = [];
+    this.held = new Map();
+    this.rec = null;
+    this.lastFrame = 0;
+  }
 
   init() {
-    this.decks = [new Deck(this, 0, $('#deckA')), new Deck(this, 1, $('#deckB'))];
-    this.looper = new LoopStation(this, $('#looper'));
-    this.buildMixer();
-    this.bindTopbar();
+    this.setup();
+    this.bindCommon();
     this.bindKeyboard();
+  }
+
+  setup() {}
+  setupAudio() {}
+  render() {}
+  isKey() {
+    return false;
+  }
+  keyDown() {
+    return null;
+  }
+  onMicReady() {}
+
+  bindCommon() {
     // 避免把檔案拖到空白處時瀏覽器直接開啟檔案
     window.addEventListener('dragover', (e) => e.preventDefault());
     window.addEventListener('drop', (e) => e.preventDefault());
+    // 觸控長按時不要跳出選單
+    document.addEventListener('contextmenu', (e) => {
+      if (e.target.closest('.no-menu, button, .pad, .pp, .platter, .knob, .fader, canvas, kbd')) e.preventDefault();
+    });
+    // 用滑鼠／觸控點過的按鈕不要留著焦點，否則按 Space / Enter 會再按一次它
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (b && e.detail > 0) b.blur();
+    });
+    document.addEventListener('change', (e) => {
+      if (e.target.tagName === 'SELECT' || e.target.type === 'checkbox') e.target.blur();
+    });
     $('#startBtn').addEventListener('click', () => this.start());
-  },
+
+    const recBtn = $('#recBtn');
+    if (recBtn) {
+      this.recLabel = $('.rec-label', recBtn).textContent;
+      recBtn.addEventListener('click', async () => {
+        await this.start();
+        this.toggleRecord();
+      });
+      $('#recFormat').addEventListener('change', (e) => e.target.blur());
+    }
+    const dlg = $('#help');
+    if (dlg) {
+      $('#helpBtn').addEventListener('click', () => (dlg.showModal ? dlg.showModal() : dlg.setAttribute('open', '')));
+      $('#helpClose').addEventListener('click', () => (dlg.close ? dlg.close() : dlg.removeAttribute('open')));
+      dlg.addEventListener('click', (e) => {
+        if (e.target === dlg) dlg.close();
+      });
+    }
+    $$('.mic-btn').forEach((b) =>
+      b.addEventListener('click', async () => {
+        await this.start();
+        this.enableMic();
+      })
+    );
+  }
 
   /** 第一次互動時建立 AudioContext（瀏覽器規定要有使用者操作） */
   start() {
@@ -61,7 +108,7 @@ const App = {
       });
     }
     return this.starting;
-  },
+  }
 
   async boot() {
     const AC = window.AudioContext || window.webkitAudioContext;
@@ -73,6 +120,7 @@ const App = {
 
     // 主輸出：master 音量 → 限幅器 → 喇叭／錄音
     this.master = ctx.createGain();
+    this.master.gain.value = 0.8;
     this.limiter = ctx.createDynamicsCompressor();
     this.limiter.threshold.value = -3;
     this.limiter.knee.value = 0;
@@ -90,8 +138,6 @@ const App = {
     this.masterOut.connect(this.recorder);
     this.recorder.connect(ctx.destination); // 輸出是靜音，只是讓節點持續運作
 
-    this.deckBus = ctx.createGain();
-    this.deckBus.connect(this.master);
     this.micBus = ctx.createGain();
     this.micMonitor = ctx.createGain();
     this.micMonitor.gain.value = 0;
@@ -100,116 +146,29 @@ const App = {
     this.micAnalyser.fftSize = 1024;
     this.micBus.connect(this.micAnalyser);
 
-    this.decks.forEach((d) => d.initAudio(ctx, this.deckBus));
-    this.looper.initAudio(ctx);
-    this.applyMixer();
-
-    this.meters = [
-      new Meter($('#vuA'), this.decks[0].analyser),
-      new Meter($('#vuB'), this.decks[1].analyser),
-      new Meter($('#vuMaster'), this.masterAnalyser),
-      new Meter($('#micMeter'), this.micAnalyser),
-    ];
+    await this.setupAudio(ctx);
 
     this.started = true;
     document.body.classList.add('started');
     $('#startOverlay').classList.add('hidden');
     this.lastFrame = performance.now();
     requestAnimationFrame((t) => this.frame(t));
-  },
-
-  /* ---------------- 混音台 ---------------- */
-
-  buildMixer() {
-    const knobDefs = [
-      { k: 'gain', label: 'GAIN', min: -12, max: 12, fmt: (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)}dB` },
-      { k: 'hi', label: 'HI', fmt: eqFmt },
-      { k: 'mid', label: 'MID', fmt: eqFmt },
-      { k: 'low', label: 'LOW', fmt: eqFmt },
-      { k: 'filter', label: 'FILTER', fmt: (v) => (Math.abs(v) < 0.02 ? 'OFF' : v < 0 ? `LP ${Math.round(-v * 100)}` : `HP ${Math.round(v * 100)}`) },
-      { k: 'echo', label: 'ECHO', min: 0, max: 1, value: 0, bipolar: false, fmt: (v) => `${Math.round(v * 100)}%` },
-    ];
-    function eqFmt(v) {
-      if (v <= -0.99) return 'KILL';
-      const db = v < 0 ? v * 36 : v * 8;
-      return `${db > 0 ? '+' : ''}${db.toFixed(1)}dB`;
-    }
-    this.decks.forEach((deck, i) => {
-      const strip = $(`.strip[data-deck="${i}"]`);
-      strip.style.setProperty('--accent', deck.def.color);
-      const box = $('.strip-knobs', strip);
-      deck.knobs = {};
-      for (const d of knobDefs) {
-        const el = document.createElement('div');
-        box.appendChild(el);
-        deck.knobs[d.k] = new Knob(el, {
-          min: d.min ?? -1,
-          max: d.max ?? 1,
-          value: d.value ?? 0,
-          bipolar: d.bipolar,
-          label: d.label,
-          title: `${d.label}（唱盤 ${deck.def.name}）`,
-          format: d.fmt,
-          onChange: (v) => deck.setParam(d.k, v),
-        });
-      }
-      deck.chFader = new Fader($('.ch-fader', strip), {
-        vertical: true,
-        value: 0.85,
-        cap: 22,
-        title: `唱盤 ${deck.def.name} 音量`,
-        onChange: (v) => deck.setParam('fader', v),
-      });
-    });
-
-    this.xfader = new Fader($('#xfader'), {
-      vertical: false,
-      value: 0.5,
-      cap: 30,
-      centerTick: true,
-      title: 'Crossfader（← → 鍵控制，↓ 置中）',
-      onChange: (v) => this.setXfader(v),
-    });
-
-    const center = $('#mixerKnobs');
-    const mk = (label, value, max, onChange, fmt) => {
-      const el = document.createElement('div');
-      el.className = 'knob-sm';
-      center.appendChild(el);
-      return new Knob(el, { min: 0, max, value, bipolar: false, label, format: fmt || ((v) => `${Math.round(v * 100)}%`), onChange });
-    };
-    this.masterKnob = mk('MASTER', 0.8, 1.2, (v) => this.setGain(this.master, v));
-    this.loopKnob = mk('LOOP', 1, 1.5, (v) => this.looper.out && this.setGain(this.looper.out, v));
-    this.micKnob = mk('MIC', 1, 2, (v) => this.setGain(this.micBus, v));
-    this.clickKnob = mk('CLICK', 0.6, 1, (v) => this.looper.metroGain && this.setGain(this.looper.metroGain, v));
-  },
-
-  applyMixer() {
-    this.setGain(this.master, this.masterKnob.value);
-    this.setGain(this.looper.out, this.loopKnob.value);
-    this.setGain(this.micBus, this.micKnob.value);
-    this.setGain(this.looper.metroGain, this.clickKnob.value);
-    this.setXfader(this.xf);
-  },
+  }
 
   setGain(node, v) {
     if (node && this.ctx) node.gain.setTargetAtTime(v, this.ctx.currentTime, 0.015);
-  },
+  }
 
-  /** Crossfader：中間兩邊都是全音量，往一側推時另一側淡出 */
-  setXfader(x, fromKeys) {
-    this.xf = x;
-    if (fromKeys) this.xfader.set(x, false);
-    const a = x <= 0.5 ? 1 : Math.cos((x - 0.5) * Math.PI);
-    const b = x >= 0.5 ? 1 : Math.sin(x * Math.PI);
-    this.decks[0].setParam('xf', a);
-    this.decks[1].setParam('xf', b);
-  },
+  addMeter(el, analyser) {
+    if (el && analyser) this.meters.push(new Meter(el, analyser));
+  }
+
+  /* ---------------- 麥克風 ---------------- */
 
   setMicMonitor(on) {
     this.setGain(this.micMonitor, on ? 1 : 0);
     if (on) toast('監聽開啟：麥克風會出現在喇叭與混音錄音中（請戴耳機避免回授）');
-  },
+  }
 
   async enableMic() {
     if (this.micReady) return true;
@@ -218,8 +177,8 @@ const App = {
       toast('無法使用麥克風：請用 https 網址或 localhost 開啟', 'error');
       return false;
     }
-    const btn = $('#micBtn');
-    btn.textContent = '要求權限中…';
+    const btns = $$('.mic-btn');
+    btns.forEach((b) => (b.textContent = '要求權限中…'));
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
@@ -229,36 +188,28 @@ const App = {
       const settings = stream.getAudioTracks()[0].getSettings();
       const inLat = typeof settings.latency === 'number' ? settings.latency : 0.01;
       const outLat = (this.ctx.outputLatency || 0) + (this.ctx.baseLatency || 0);
-      this.looper.suggestLatency(Math.round((inLat + outLat) * 1000));
       this.micReady = true;
-      btn.textContent = '🎤 麥克風已啟用';
-      btn.classList.add('on');
-      btn.disabled = true;
+      btns.forEach((b) => {
+        b.textContent = '麥克風已啟用';
+        b.classList.add('on');
+        b.disabled = true;
+      });
+      this.onMicReady(Math.round((inLat + outLat) * 1000));
       return true;
     } catch (err) {
       console.error(err);
-      btn.textContent = '啟用麥克風';
+      btns.forEach((b) => (b.textContent = '啟用麥克風'));
       toast('沒有取得麥克風權限：' + (err.message || err.name), 'error');
       return false;
     }
-  },
+  }
+
+  /** 使用者聽到聲音到按下按鍵之間的輸出延遲（秒） */
+  outputLatency() {
+    return this.ctx ? (this.ctx.outputLatency || 0) + (this.ctx.baseLatency || 0) : 0;
+  }
 
   /* ---------------- 錄製混音 & 匯出 ---------------- */
-
-  bindTopbar() {
-    $('#recBtn').addEventListener('click', async () => {
-      await this.start();
-      this.toggleRecord();
-    });
-    $('#recFormat').addEventListener('change', (e) => e.target.blur());
-    $('#vinylMode').addEventListener('change', (e) => (this.vinyl = e.target.checked));
-    const dlg = $('#help');
-    $('#helpBtn').addEventListener('click', () => (dlg.showModal ? dlg.showModal() : dlg.setAttribute('open', '')));
-    $('#helpClose').addEventListener('click', () => (dlg.close ? dlg.close() : dlg.removeAttribute('open')));
-    dlg.addEventListener('click', (e) => {
-      if (e.target === dlg) dlg.close();
-    });
-  },
 
   toggleRecord() {
     if (this.rec) {
@@ -266,12 +217,13 @@ const App = {
     } else {
       this.startRecord();
     }
-  },
+  }
 
   startRecord() {
     const fmt = $('#recFormat').value;
+    const prefix = document.body.dataset.exportPrefix || 'mix';
     if (fmt === 'wav') {
-      this.rec = { fmt, chunks: [], frames: 0, start: performance.now() };
+      this.rec = { fmt, chunks: [], frames: 0, start: performance.now(), prefix };
       this.recorder.port.postMessage({ type: 'start' });
     } else {
       const mime = pickRecorderMime();
@@ -287,30 +239,30 @@ const App = {
       }
       const mr = new MediaRecorder(this.streamDest.stream, { mimeType: mime, audioBitsPerSecond: 256000 });
       const parts = [];
-      const rec = { fmt, mr, mime, start: performance.now() };
+      const rec = { fmt, mr, mime, start: performance.now(), prefix };
       mr.ondataavailable = (e) => e.data.size && parts.push(e.data);
       mr.onstop = () => {
         const dur = (performance.now() - rec.start) / 1000;
         this.rec = null;
-        this.addExport(new Blob(parts, { type: mime }), `dj-mix-${stamp()}.${mimeExt(mime)}`, dur, false);
+        this.addExport(new Blob(parts, { type: mime }), `${prefix}-${stamp()}.${mimeExt(mime)}`, dur, false);
       };
       mr.start(1000);
       this.rec = rec;
     }
     document.body.classList.add('recording');
     $('#recBtn .rec-label').textContent = '停止錄製';
-    toast('開始錄製混音（主輸出：唱盤 + Loop + 監聽中的麥克風）');
-  },
+    toast('開始錄製（節拍器不會被錄進去）');
+  }
 
   stopRecord() {
     const r = this.rec;
     r.stopping = true;
     r.end = performance.now();
     document.body.classList.remove('recording');
-    $('#recBtn .rec-label').textContent = '錄製混音';
+    $('#recBtn .rec-label').textContent = this.recLabel;
     if (r.fmt === 'wav') this.recorder.port.postMessage({ type: 'stop' });
     else r.mr.stop();
-  },
+  }
 
   onRecorderMessage(m) {
     const r = this.rec;
@@ -322,9 +274,9 @@ const App = {
       this.rec = null;
       const sr = this.ctx.sampleRate;
       const blob = new Blob([wavHeader(r.frames, sr), ...r.chunks], { type: 'audio/wav' });
-      this.addExport(blob, `dj-mix-${stamp()}.wav`, r.frames / sr, false);
+      this.addExport(blob, `${r.prefix}-${stamp()}.wav`, r.frames / sr, false);
     }
-  },
+  }
 
   addExport(blob, name, duration, autoDownload) {
     const url = URL.createObjectURL(blob);
@@ -350,13 +302,13 @@ const App = {
     if (autoDownload) a.click();
     toast(`已匯出：${name}`, 'ok');
     if (!autoDownload) $('#exports').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  },
+  }
 
   /* ---------------- 鍵盤 ---------------- */
 
   bindKeyboard() {
     const isField = (el) =>
-      el && (el.isContentEditable || el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'file'].includes(el.type)));
+      el && (el.isContentEditable || el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'file', 'range'].includes(el.type)));
 
     window.addEventListener('keydown', (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -365,7 +317,7 @@ const App = {
         return;
       }
       const code = e.code;
-      const known = KEY_ACTIONS[code] || /^Digit[1-4]$/.test(code) || code in XF_KEYS || code === 'ArrowDown';
+      const known = this.isKey(code);
       if (!this.started) {
         if (known || code === 'Space' || code === 'Enter') {
           e.preventDefault();
@@ -381,43 +333,9 @@ const App = {
     });
 
     window.addEventListener('keyup', (e) => this.keyUp(e.code));
-    // 切換視窗時放開所有按鍵，避免卡在倒帶／加速
+    // 切換視窗時放開所有按鍵，避免卡在按住的狀態
     window.addEventListener('blur', () => [...this.held.keys()].forEach((c) => this.keyUp(c)));
-  },
-
-  /** 執行按下的動作，回傳放開時要呼叫的函式（或 null） */
-  keyDown(code, shift) {
-    const ka = KEY_ACTIONS[code];
-    if (ka) {
-      const deck = this.decks[ka.deck];
-      switch (ka.act) {
-        case 'play':
-          deck.togglePlay();
-          return null;
-        case 'cue':
-          if (shift) deck.setCue();
-          else deck.drop();
-          return null;
-        default:
-          return deck.startHold(ka.act, shift);
-      }
-    }
-    if (/^Digit[1-4]$/.test(code)) {
-      const i = Number(code.slice(5)) - 1;
-      if (shift) this.looper.stopToggle(i);
-      else this.looper.press(i);
-      return null;
-    }
-    if (code in XF_KEYS) {
-      const dir = XF_KEYS[code];
-      this.xfDir = dir;
-      return () => {
-        if (this.xfDir === dir) this.xfDir = 0;
-      };
-    }
-    if (code === 'ArrowDown') this.setXfader(0.5, true);
-    return null;
-  },
+  }
 
   keyUp(code) {
     if (!this.held.has(code)) return;
@@ -425,16 +343,14 @@ const App = {
     this.held.delete(code);
     $$(`[data-key="${code}"]`).forEach((el) => el.classList.remove('is-down'));
     if (release) release();
-  },
+  }
 
   /* ---------------- 畫面更新 ---------------- */
 
   frame(now) {
     const dt = Math.min(0.1, (now - this.lastFrame) / 1000);
     this.lastFrame = now;
-    if (this.xfDir) this.setXfader(clamp(this.xf + this.xfDir * dt * 1.6, 0, 1), true);
-    for (const d of this.decks) d.render();
-    this.looper.render();
+    this.render(dt, now);
     for (const m of this.meters) m.update(dt);
     if (this.rec) {
       const secs = ((this.rec.end || now) - this.rec.start) / 1000;
@@ -443,7 +359,5 @@ const App = {
       if (text !== this._recText) $('#recTime').textContent = this._recText = text;
     }
     requestAnimationFrame((t) => this.frame(t));
-  },
-};
-
-window.addEventListener('DOMContentLoaded', () => App.init());
+  }
+}
