@@ -645,3 +645,71 @@ input[type="number"] { width: 72px; }
   .topbar { justify-content: center; }
   .keymap { display: none; }
 }
+
+/* ---------------- 頁面分頁 ---------------- */
+
+a.brand { color: var(--text); text-decoration: none; }
+.tabs {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--line);
+}
+.tab {
+  padding: 7px 14px;
+  border-radius: 9px;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+.tab:hover { color: var(--text); background: rgba(255, 255, 255, 0.04); }
+.tab[aria-current="page"] { color: #04060b; background: linear-gradient(90deg, var(--a), #a78bfa, var(--b)); }
+.tab:focus-visible, .btn:focus-visible, .pad:focus-visible, .seg button:focus-visible { outline: 2px solid #c4b5fd; outline-offset: 2px; }
+
+/* ---------------- 觸控 ---------------- */
+
+button, .btn, .pad, .tab, kbd, .seg button, .knob, .fader, .platter {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.pad, .knob-ring, .fader, .platter, .wave canvas { touch-action: none; }
+.btn.is-down { border-color: var(--accent); box-shadow: inset 0 0 14px var(--accent-dim); }
+.btn.confirm { background: var(--rec); border-color: var(--rec); color: #fff; }
+.km-group.pads b { color: #f472b6; }
+.km-group.pads kbd { --accent: #f472b6; }
+.help caption.pads { color: #f472b6; }
+
+/* ---------------- Loop Station 獨立頁 ---------------- */
+
+.page-loop .looper { margin-top: 0; }
+.lp-rack { display: flex; gap: 14px; align-items: stretch; margin: 12px 0 14px; }
+.lp-rack .lp-controls { flex: 1; margin: 0; }
+.lp-mixer { display: flex; align-items: flex-end; gap: 14px; padding: 10px 14px; background: rgba(0, 0, 0, 0.18); border: 1px solid var(--line); border-radius: 12px; }
+.lp-knobs { display: flex; gap: 12px; }
+.lp-knobs .knob { --size: 40px; }
+.page-loop .meter.tall { height: 70px; }
+.page-loop .lp-tracks { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.page-loop .lp-wave { height: 86px; }
+.page-loop .lp-main { height: 64px; font-size: 18px; border-radius: 14px; flex-basis: 100%; }
+.page-loop .lp-btns .btn.icon { flex: 1; height: 38px; }
+.page-loop .lp-top kbd { font-size: 14px; }
+
+@media (max-width: 1100px) {
+  .lp-rack { flex-direction: column; }
+  .lp-mixer { justify-content: center; }
+  .page-loop .lp-tracks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .tabs { order: 3; width: 100%; justify-content: center; }
+  .tab { flex: 1; text-align: center; padding: 8px 6px; font-size: 13px; }
+  .page-loop .lp-tracks { grid-template-columns: minmax(0, 1fr); }
+  .lp-knobs { flex-wrap: wrap; justify-content: center; }
+}

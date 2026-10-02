@@ -1,7 +1,7 @@
 /*
  * AudioWorklet 處理器：唱盤、Loop Station、混音錄音器。
  *
- * 整個函式會在 app.js 以 Function.prototype.toString() 轉成字串，
+ * 整個函式會在 core.js 以 Function.prototype.toString() 轉成字串，
  * 包成 Blob URL 後交給 audioWorklet.addModule()，
  * 所以直接雙擊 index.html（file://）也能運作。
  * 注意：函式內不可引用任何外部變數。

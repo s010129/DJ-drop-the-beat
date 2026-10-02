@@ -4,35 +4,6 @@
 const DEMO_BPM = 124;
 const DEMO_NAMES = { A: 'Demo A · Neon House', B: 'Demo B · Midnight Acid' };
 
-/** RBJ biquad 係數（寫入 out：b0 b1 b2 a1 a2，已除以 a0） */
-function biquadCoefs(type, freq, q, sr, out) {
-  const w = (2 * Math.PI * Math.min(freq, sr * 0.45)) / sr;
-  const cs = Math.cos(w);
-  const alpha = Math.sin(w) / (2 * q);
-  let b0;
-  let b1;
-  let b2;
-  if (type === 'lowpass') {
-    b0 = (1 - cs) / 2;
-    b1 = 1 - cs;
-    b2 = b0;
-  } else if (type === 'highpass') {
-    b0 = (1 + cs) / 2;
-    b1 = -(1 + cs);
-    b2 = b0;
-  } else {
-    b0 = alpha;
-    b1 = 0;
-    b2 = -alpha;
-  }
-  const a0 = 1 + alpha;
-  out[0] = b0 / a0;
-  out[1] = b1 / a0;
-  out[2] = b2 / a0;
-  out[3] = (-2 * cs) / a0;
-  out[4] = (1 - alpha) / a0;
-}
-
 async function renderDemo(kind, sr) {
   await new Promise((r) => setTimeout(r, 20)); // 先讓「合成中…」顯示出來
   const beat = 60 / DEMO_BPM;
@@ -43,76 +14,25 @@ async function renderDemo(kind, sr) {
   const L = buf.getChannelData(0);
   const R = buf.getChannelData(1);
   const S = new Float32Array(length); // 回音 send
-  const noise = new Float32Array(sr);
-  for (let i = 0; i < noise.length; i++) noise[i] = Math.random() * 2 - 1;
-  const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
-  const coef = new Float64Array(5);
+  const hz = midiHz;
 
-  function kick(t, peak = 1) {
+  /** 把算好的音色加進立體聲緩衝（等功率聲像，send 送進回音） */
+  function mixIn(data, t, pan = 0, send = 0) {
     const s0 = Math.round(t * sr);
-    const n = Math.min(Math.round(0.45 * sr), length - s0);
-    let ph = 0;
-    for (let i = 0; i < n; i++) {
-      const tt = i / sr;
-      ph += (2 * Math.PI * (46 + 109 * Math.exp(-tt / 0.028))) / sr;
-      const v = Math.sin(ph) * Math.min(1, tt / 0.002) * Math.exp(-tt / 0.13) * peak * 0.9;
-      L[s0 + i] += v;
-      R[s0 + i] += v;
-    }
-  }
-
-  /** 通用音色：振盪器（saw / sine / noise）→ 掃頻濾波 → 包絡 → 聲像／回音 */
-  function voice(o) {
-    const s0 = Math.round(o.t * sr);
-    const n = Math.min(Math.round(o.dur * sr), length - s0);
-    if (n <= 0) return;
-    const oscs = o.oscs;
-    const phases = oscs.map(() => Math.random());
-    const incs = oscs.map((x) => (x.f || 0) / sr);
-    const noff = Math.floor(Math.random() * noise.length);
-    const attack = o.attack ?? 0.003;
-    const h = Math.max(attack, (o.hold || 0) * o.dur);
-    const pan = o.pan || 0;
+    const n = Math.min(data.length, length - s0);
     const gl = Math.cos(((pan + 1) * Math.PI) / 4) * Math.SQRT2;
     const gr = Math.sin(((pan + 1) * Math.PI) / 4) * Math.SQRT2;
-    const send = o.send || 0;
-    const cutTo = o.cutTo ?? o.cutFrom;
-    let x1 = 0;
-    let x2 = 0;
-    let y1 = 0;
-    let y2 = 0;
     for (let i = 0; i < n; i++) {
-      if (o.filter && (i & 15) === 0) {
-        biquadCoefs(o.filter, o.cutFrom * Math.pow(cutTo / o.cutFrom, i / n), o.q || 0.707, sr, coef);
-      }
-      let x = 0;
-      for (let k = 0; k < oscs.length; k++) {
-        const os = oscs[k];
-        if (os.type === 'noise') {
-          x += noise[(noff + i) % noise.length] * os.g;
-        } else {
-          let p = phases[k] + incs[k];
-          if (p >= 1) p -= 1;
-          phases[k] = p;
-          x += (os.type === 'saw' ? 2 * p - 1 : Math.sin(2 * Math.PI * p)) * os.g;
-        }
-      }
-      let y = x;
-      if (o.filter) {
-        y = coef[0] * x + coef[1] * x1 + coef[2] * x2 - coef[3] * y1 - coef[4] * y2;
-        x2 = x1;
-        x1 = x;
-        y2 = y1;
-        y1 = y;
-      }
-      const tt = i / sr;
-      const env = tt < attack ? tt / attack : tt < h ? 1 : Math.exp((-9.2 * (tt - h)) / Math.max(1e-3, o.dur - h));
-      const v = y * env * o.peak;
+      const v = data[i];
       L[s0 + i] += v * gl;
       R[s0 + i] += v * gr;
       if (send) S[s0 + i] += v * send;
     }
   }
+
+  const kick = (t, peak = 1) =>
+    mixIn(renderVoice(sr, { dur: 0.45, oscs: [{ type: 'sine', f: 155, fTo: 46, fTau: 0.028, g: 1 }], attack: 0.002, tau: 0.13, peak: peak * 0.9 }), t);
+  const voice = (o) => mixIn(renderVoice(sr, o), o.t, o.pan || 0, o.send || 0);
 
   const noiseOsc = [{ type: 'noise', g: 1 }];
   const hat = (t, open, peak = 0.26) =>
