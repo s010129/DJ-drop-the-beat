@@ -35,6 +35,7 @@ class LoopStation {
     this.bpm = 120;
     this.quant = 'off';
     this.metro = false;
+    this.autoGain = true;
     this.latencyMs = 0;
     this.latencyTouched = false;
     this.vols = new Array(this.count).fill(1);
@@ -69,6 +70,10 @@ class LoopStation {
     on('#tapBtn', 'click', () => this.tap());
     on('#bpmFromA', 'click', () => this.bpmFromDeck(0));
     on('#bpmFromB', 'click', () => this.bpmFromDeck(1));
+    on('#lpAutoGain', 'change', (e) => {
+      this.autoGain = e.target.checked;
+      this.sendConfig();
+    });
     this.metroBox = $('#lpMetro', root);
     this.metroBox.addEventListener('change', (e) => this.setMetro(e.target.checked));
     $('#lpQuant', root).addEventListener('change', (e) => {
@@ -205,7 +210,7 @@ class LoopStation {
   }
 
   sendConfig() {
-    this.post({ type: 'config', bpm: this.bpm, quant: this.quant, metro: this.metro, micLat: this.latencyMs / 1000 });
+    this.post({ type: 'config', bpm: this.bpm, quant: this.quant, metro: this.metro, autoGain: this.autoGain, micLat: this.latencyMs / 1000 });
   }
 
   setSource(src) {
@@ -322,6 +327,7 @@ class LoopStation {
       return;
     }
     const sr = this.ctx.sampleRate;
+    normalizePeak(d.L, d.R);
     this.app.addExport(makeWav(d.L, d.R, sr), `loop-${i + 1}-${stamp()}.wav`, d.L.length / sr, true);
   }
 
@@ -357,15 +363,7 @@ class LoopStation {
         R[j] += p.R[j % n] * p.vol;
       }
     }
-    let peak = 0;
-    for (let j = 0; j < len; j++) peak = Math.max(peak, Math.abs(L[j]), Math.abs(R[j]));
-    if (peak > 0.99) {
-      const k = 0.99 / peak;
-      for (let j = 0; j < len; j++) {
-        L[j] *= k;
-        R[j] *= k;
-      }
-    }
+    normalizePeak(L, R);
     const sr = this.ctx.sampleRate;
     this.app.addExport(makeWav(L, R, sr), `loop-mix-${stamp()}.wav`, len / sr, true);
   }

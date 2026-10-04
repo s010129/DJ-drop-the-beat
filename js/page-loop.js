@@ -15,9 +15,9 @@ class LoopApp extends AudioApp {
       return new Knob(el, { min: 0, max, value, bipolar: false, label, format: (v) => `${Math.round(v * 100)}%`, onChange });
     };
     this.knobs = {
-      master: mk('MASTER', 0.8, 1.2, (v) => this.setGain(this.master, v)),
-      loop: mk('LOOP', 1, 1.5, (v) => this.setGain(this.looper.out, v)),
-      mic: mk('MIC', 1, 2, (v) => this.setGain(this.micBus, v)),
+      master: mk('MASTER', 1, 1.5, (v) => this.setGain(this.master, v)),
+      loop: mk('LOOP', 1.2, 2, (v) => this.setGain(this.looper.out, v)),
+      mic: mk('MIC', 1, 4, (v) => this.setGain(this.micBus, v)),
       click: mk('CLICK', 0.6, 1, (v) => this.setGain(this.looper.metroGain, v)),
     };
   }

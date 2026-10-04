@@ -101,8 +101,8 @@ class DjApp extends AudioApp {
       return new Knob(el, { min: 0, max, value, bipolar: false, label, format: (v) => `${Math.round(v * 100)}%`, onChange });
     };
     this.masterKnob = mk('MASTER', 0.8, 1.2, (v) => this.setGain(this.master, v));
-    this.loopKnob = mk('LOOP', 1, 1.5, (v) => this.setGain(this.looper.out, v));
-    this.micKnob = mk('MIC', 1, 2, (v) => this.setGain(this.micBus, v));
+    this.loopKnob = mk('LOOP', 1.2, 2, (v) => this.setGain(this.looper.out, v));
+    this.micKnob = mk('MIC', 1, 4, (v) => this.setGain(this.micBus, v));
     this.clickKnob = mk('CLICK', 0.6, 1, (v) => this.setGain(this.looper.metroGain, v));
   }
 

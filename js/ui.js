@@ -94,6 +94,18 @@ function floatsToInt16(L, R) {
   return out;
 }
 
+/** 峰值超過 0.99 時整段縮小，避免匯出的 WAV 破音 */
+function normalizePeak(L, R) {
+  let peak = 0;
+  for (let j = 0; j < L.length; j++) peak = Math.max(peak, Math.abs(L[j]), Math.abs(R[j]));
+  if (peak <= 0.99) return;
+  const k = 0.99 / peak;
+  for (let j = 0; j < L.length; j++) {
+    L[j] *= k;
+    R[j] *= k;
+  }
+}
+
 function makeWav(L, R, sampleRate) {
   return new Blob([wavHeader(L.length, sampleRate), floatsToInt16(L, R)], { type: 'audio/wav' });
 }

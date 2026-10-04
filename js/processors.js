@@ -11,6 +11,8 @@ function djProcessorsModule() {
 
   const PEAKS = 160; // Loop 軌道縮圖的波形格數
   const CHUNK = 16384; // 錄第一個 Loop 時每一塊的長度（frame）
+  const AUTO_TARGET = 0.7; // 自動音量：新錄音的峰值拉到約 -3 dBFS
+  const AUTO_MAX = 10; // 自動音量最多放大 10 倍（+20 dB），只放大不縮小
 
   /* ------------------------------------------------------------------
    * 唱盤：可任意變速（含倒轉）的播放器。
@@ -169,6 +171,7 @@ function djProcessorsModule() {
       this.afterClose = 'play';
       this.bpm = 120;
       this.metro = false;
+      this.autoGain = true;
       this.quant = 'off';
       this.micLat = 0; // 麥克風延遲補償（frame）
       this.since = 0;
@@ -186,6 +189,7 @@ function djProcessorsModule() {
         uR: null,
         undo: false,
         vol,
+        inGain: 1, // 自動音量的倍數，之後疊錄也用同一個倍數
         recLeft: 0,
         chunks: null,
         fill: 0,
@@ -240,6 +244,7 @@ function djProcessorsModule() {
           if (m.quant) this.quant = m.quant;
           if (typeof m.micLat === 'number') this.micLat = Math.round(m.micLat * sampleRate);
           if (typeof m.metro === 'boolean') this.setMetro(m.metro);
+          if (typeof m.autoGain === 'boolean') this.autoGain = m.autoGain;
           break;
         case 'restart':
           if (this.first < 0) this.counter = 0;
@@ -278,6 +283,8 @@ function djProcessorsModule() {
           this.finishFirst();
           break;
         case 'rec':
+          this.finishRec(t, 'play');
+          break;
         case 'dub':
           t.state = 'play';
           break;
@@ -361,7 +368,37 @@ function djProcessorsModule() {
       this.loopLen = len;
       this.first = -1;
       this.closeAt = -1;
+      this.autoLevel(t);
       this.computePeaks(t);
+    }
+
+    /** 新軌錄完一圈（或被按停）：套用自動音量後切換狀態 */
+    finishRec(t, state) {
+      t.state = state;
+      this.autoLevel(t);
+      this.computePeaks(t);
+    }
+
+    /** 自動音量：把剛錄好的內容放大到目標峰值，並記住倍數給之後的疊錄使用 */
+    autoLevel(t) {
+      if (!this.autoGain || !t.len) return;
+      const L = t.L;
+      const R = t.R;
+      let peak = 0;
+      for (let j = 0; j < t.len; j++) {
+        const a = L[j] < 0 ? -L[j] : L[j];
+        const b = R[j] < 0 ? -R[j] : R[j];
+        if (a > peak) peak = a;
+        if (b > peak) peak = b;
+      }
+      if (peak < 1e-4) return;
+      const g = Math.min(AUTO_MAX, AUTO_TARGET / peak);
+      if (g <= 1.05) return;
+      for (let j = 0; j < t.len; j++) {
+        L[j] *= g;
+        R[j] *= g;
+      }
+      t.inGain *= g;
     }
 
     cancelFirst() {
@@ -435,9 +472,11 @@ function djProcessorsModule() {
     stopToggle(i) {
       const t = this.tracks[i];
       switch (t.state) {
+        case 'rec':
+          this.finishRec(t, 'stop');
+          break;
         case 'play':
         case 'dub':
-        case 'rec':
           t.state = 'stop';
           break;
         case 'stop':
@@ -457,7 +496,8 @@ function djProcessorsModule() {
       const live = (s) => s === 'play' || s === 'dub' || s === 'rec';
       const anyLive = this.tracks.some((t) => live(t.state));
       for (const t of this.tracks) {
-        if (anyLive && live(t.state)) t.state = 'stop';
+        if (anyLive && t.state === 'rec') this.finishRec(t, 'stop');
+        else if (anyLive && live(t.state)) t.state = 'stop';
         else if (!anyLive && t.state === 'stop') t.state = 'play';
       }
     }
@@ -490,6 +530,7 @@ function djProcessorsModule() {
       t.undo = false;
       t.uL = null;
       t.uR = null;
+      t.inGain = 1; // 匯入的音檔維持原本音量
       this.computePeaks(t);
     }
 
@@ -572,15 +613,16 @@ function djProcessorsModule() {
             outR += R[j] * t.vol;
             if (st === 'rec' || st === 'dub') {
               // DJ 盤訊號在內部，時間完全對齊；麥克風要扣掉輸出＋輸入延遲
-              L[j] += inDL;
-              R[j] += inDR;
+              const g = t.inGain;
+              L[j] += inDL * g;
+              R[j] += inDR * g;
               let jm = j;
               if (micLat) {
                 jm = (c - micLat) % len;
                 if (jm < 0) jm += len;
               }
-              L[jm] += inML;
-              R[jm] += inMR;
+              L[jm] += inML * g;
+              R[jm] += inMR * g;
               const sc = PEAKS / len;
               const p = t.peaks;
               let b = (j * sc) | 0;
@@ -590,7 +632,7 @@ function djProcessorsModule() {
               v = Math.max(Math.abs(L[jm]), Math.abs(R[jm]));
               if (v > p[b]) p[b] = v;
               t.dirty = true;
-              if (st === 'rec' && --t.recLeft <= 0) t.state = 'play';
+              if (st === 'rec' && --t.recLeft <= 0) this.finishRec(t, 'play');
             }
           }
           oL[s] = outL;
